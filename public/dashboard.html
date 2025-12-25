@@ -227,6 +227,122 @@
         loadEmployees();
 
     </script>
+    <div id="chat-btn" onclick="toggleChat()"
+        style="position: fixed; bottom: 20px; right: 20px; width: 60px; height: 60px; background: #007bff; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2); font-size: 30px;">
+        🤖
+    </div>
+
+    <!-- 2. 聊天窗口 (默认隐藏) -->
+    <div id="chat-window"
+        style="display: none; position: fixed; bottom: 90px; right: 20px; width: 350px; height: 500px; background: white; border: 1px solid #ccc; border-radius: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); flex-direction: column;">
+        <!-- 标题栏 -->
+        <div
+            style="background: #007bff; color: white; padding: 10px; border-radius: 10px 10px 0 0; display: flex; justify-content: space-between;">
+            <span>AI 数据助理</span>
+            <span onclick="toggleChat()" style="cursor: pointer;">✖</span>
+        </div>
+
+        <!-- 消息内容区 -->
+        <div id="chat-messages"
+            style="flex: 1; padding: 10px; overflow-y: auto; background: #f9f9f9; display: flex; flex-direction: column; gap: 10px;">
+            <div style="background: #e9ecef; padding: 8px; border-radius: 5px; align-self: flex-start; max-width: 80%;">
+                你好！我是你的数据助理，想查什么（比如：谁工资最高）？
+            </div>
+        </div>
+
+        <!-- 输入框区 -->
+        <div style="padding: 10px; border-top: 1px solid #eee; display: flex;">
+            <input type="text" id="chat-input" placeholder="输入问题..."
+                style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            <button onclick="sendMsg()"
+                style="margin-left: 5px; background: #007bff; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer;">发送</button>
+        </div>
+    </div>
+
+    <script>
+        // 切换聊天窗显示/隐藏
+        function toggleChat() {
+            const win = document.getElementById('chat-window');
+            if (win.style.display === 'none') {
+                win.style.display = 'flex';
+            } else {
+                win.style.display = 'none';
+            }
+        }
+
+        // 发送消息
+        async function sendMsg() {
+            const input = document.getElementById('chat-input');
+            const msg = input.value;
+            if (!msg) return;
+
+            // 1. 把自己的话显示在界面上
+            addBubble(msg, 'self');
+            input.value = ''; // 清空输入框
+
+            // 2. 显示“正在思考...”
+            const loadingId = addBubble('正在思考...', 'system');
+
+            try {
+                // 3. 发送给后端
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: msg })
+                });
+                const json = await res.json();
+
+                // 4. 移除“正在思考”，显示 AI 的回答
+                document.getElementById(loadingId).remove();
+
+                if (json.success) {
+                    addBubble(json.reply, 'ai');
+                } else {
+                    addBubble('出错了: ' + json.error, 'system');
+                }
+
+            } catch (err) {
+                addBubble('网络连不上了', 'system');
+            }
+        }
+
+        // 辅助函数：添加气泡
+        function addBubble(text, type) {
+            const box = document.getElementById('chat-messages');
+            const div = document.createElement('div');
+            const id = 'msg-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+            div.id = id;
+            div.style.padding = '8px';
+            div.style.borderRadius = '5px';
+            div.style.maxWidth = '80%';
+            div.style.wordWrap = 'break-word';
+
+            if (type === 'self') {
+                div.style.background = '#007bff';
+                div.style.color = 'white';
+                div.style.alignSelf = 'flex-end'; // 靠右
+            } else if (type === 'ai') {
+                div.style.background = '#e9ecef';
+                div.style.color = 'black';
+                div.style.alignSelf = 'flex-start'; // 靠左
+            } else {
+                div.style.background = 'transparent';
+                div.style.color = '#888';
+                div.style.fontSize = '12px';
+                div.style.alignSelf = 'center';
+            }
+
+            div.textContent = text;
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight; // 自动滚动到底部
+            return id;
+        }
+
+        // 支持按回车发送
+        document.getElementById('chat-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') sendMsg();
+        });
+    </script>
 </body>
 
 </html>

@@ -2,7 +2,7 @@ const http = require('http');   // Node自带的网络模块
 const fs = require('fs');       // Node自带的文件读写模块
 const path = require('path');   // Node自带的路径处理模块
 const db = require('./db');     // 引入上一节写的数据库连接
-
+const { chatWithAI } = require('./agent');
 // 辅助函数：专门用来接收 POST 请求发来的数据
 function getBody(req) {
     return new Promise((resolve, reject) => {
@@ -143,7 +143,30 @@ const server = http.createServer(async (req, res) => {
         }
         return;
     }
+    //🟢 接口：AI 聊天
+    if (url === '/api/chat' && method === 'POST') {
+        try {
+            const bodyStr = await getBody(req);
+            const { message } = JSON.parse(bodyStr);
 
+            if (!message) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: '说话啊，没听到内容' }));
+                return;
+            }
+
+            // 调用 Agent 开始思考
+            const reply = await chatWithAI(message);
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, reply: reply }));
+
+        } catch (err) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: err.message }));
+        }
+        return;
+    }
     // 如果以上都不是，返回 404
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('404 Not Found - 找不到这个接口或页面');
