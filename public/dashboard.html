@@ -1,0 +1,232 @@
+<!-- public/dashboard.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <title>员工管理系统 - 控制台</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .logout-btn {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .logout-btn:hover {
+            background-color: #b02b39;
+        }
+
+        /* 表格样式 */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        /* 新增表单样式 */
+        .add-form {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        input {
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .add-btn {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            padding: 6px 15px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .add-btn:hover {
+            background-color: #185e28;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <header>
+            <h2>员工管理列表</h2>
+            <div>
+                <span id="welcomeUser"></span>
+                <button class="logout-btn" onclick="logout()">退出登录</button>
+            </div>
+        </header>
+
+        <!-- 1. 新增员工表单 -->
+        <div class="add-form">
+            <strong>新增员工：</strong>
+            <input type="text" id="newName" placeholder="姓名" required>
+            <input type="text" id="newPos" placeholder="职位" required>
+            <input type="number" id="newSalary" placeholder="薪资" required>
+            <button class="add-btn" onclick="addEmployee()">添加</button>
+        </div>
+
+        <!-- 2. 数据列表表格 -->
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>姓名</th>
+                    <th>职位</th>
+                    <th>薪资</th>
+                    <th>入职时间</th>
+                </tr>
+            </thead>
+            <tbody id="employeeTableBody">
+                <!-- 这里的数据会由 JS 自动填充 -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // ===========================
+        // 1. 安全检查 (守卫)
+        // ===========================
+        const user = localStorage.getItem('user');
+        if (!user) {
+            alert('你还没登录呢！');
+            window.location.href = '/index.html'; // 踢回首页
+        }
+        document.getElementById('welcomeUser').textContent = `你好, ${user} | `;
+
+        // ===========================
+        // 2. 核心功能：加载列表
+        // ===========================
+        async function loadEmployees() {
+            try {
+                // 向后端发起 GET 请求
+                const res = await fetch('/api/employees');
+                const json = await res.json();
+
+                if (json.success) {
+                    const tbody = document.getElementById('employeeTableBody');
+                    tbody.innerHTML = ''; // 先清空表格，防止重复
+
+                    // 遍历数据，生成 HTML
+                    json.data.forEach(emp => {
+                        const date = new Date(emp.created_at).toLocaleString(); // 格式化时间
+
+                        const tr = `
+                            <tr>
+                                <td>${emp.id}</td>
+                                <td>${emp.name}</td>
+                                <td>${emp.position}</td>
+                                <td>¥${emp.salary}</td>
+                                <td>${date}</td>
+                            </tr>
+                        `;
+                        tbody.innerHTML += tr; // 追加到表格里
+                    });
+                }
+            } catch (err) {
+                console.error('加载失败', err);
+                alert('获取数据失败');
+            }
+        }
+
+        // ===========================
+        // 3. 核心功能：添加员工
+        // ===========================
+        async function addEmployee() {
+            // 获取输入框的值
+            const name = document.getElementById('newName').value;
+            const position = document.getElementById('newPos').value;
+            const salary = document.getElementById('newSalary').value;
+
+            if (!name || !position || !salary) {
+                alert('请把信息填完整！');
+                return;
+            }
+
+            try {
+                // 向后端发起 POST 请求
+                const res = await fetch('/api/employees', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, position, salary })
+                });
+
+                const json = await res.json();
+                if (json.success) {
+                    alert('添加成功！');
+                    // 清空输入框
+                    document.getElementById('newName').value = '';
+                    document.getElementById('newPos').value = '';
+                    document.getElementById('newSalary').value = '';
+                    // 重新加载列表，就能看到新数据了
+                    loadEmployees();
+                } else {
+                    alert('添加失败: ' + json.error);
+                }
+            } catch (err) {
+                console.error(err);
+                alert('网络错误');
+            }
+        }
+
+        // ===========================
+        // 4. 退出功能
+        // ===========================
+        function logout() {
+            localStorage.removeItem('user'); // 销毁凭证
+            window.location.href = '/index.html'; // 回到登录页
+        }
+
+        // 页面一打开，立刻加载数据
+        loadEmployees();
+
+    </script>
+</body>
+
+</html>
