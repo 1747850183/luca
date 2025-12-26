@@ -144,6 +144,32 @@ const server = http.createServer(async (req, res) => {
         }
         return;
     }
+    if (url === '/api/employees' && method === 'PUT') {
+        try {
+            const bodyStr = await getBody(req);
+            const { id, name, position, salary } = JSON.parse(bodyStr);
+
+            // 简单的校验
+            if (!id) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: '必须提供员工ID' }));
+                return;
+            }
+
+            await db.query(
+                'UPDATE employees SET name = ?, position = ?, salary = ? WHERE id = ?',
+                [name, position, salary, id]
+            );
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, message: '员工信息已更新' }));
+        } catch (err) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: err.message }));
+        }
+        return;
+    }
+
     //🟢 接口：AI 聊天
     if (url === '/api/chat' && method === 'POST') {
         try {
@@ -155,12 +181,14 @@ const server = http.createServer(async (req, res) => {
                 res.end(JSON.stringify({ error: '说话啊，没听到内容' }));
                 return;
             }
-
-            // 调用 Agent 开始思考
-            const reply = await chatWithAI(message);
+            const result = await chatWithAI(message);
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, reply: reply }));
+            res.end(JSON.stringify({
+                success: true,
+                reply: result.reply,
+                shouldRefresh: result.shouldRefresh
+            }));
 
         } catch (err) {
             res.writeHead(500);

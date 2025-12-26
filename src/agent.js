@@ -6,7 +6,7 @@ const API_KEY = process.env.AI_API_KEY;
 // 如果用 DeepSeek，地址是 https://api.deepseek.com/v1/chat/completions
 // 如果用 OpenAI，地址是 https://api.openai.com/v1/chat/completions
 const API_URL = 'https://api.deepseek.com/chat/completions';
-
+let conversationHistory = [];
 // ==========================================
 // 1. 定义工具 (Tools) - 给 AI 看的“菜单”
 // ==========================================
@@ -126,6 +126,7 @@ async function executeTool(toolCall) {
     }
 }
 
+// src/agent.js 中的 chatWithAI 函数
 
 async function chatWithAI(userQuery) {
     try {
@@ -133,67 +134,101 @@ async function chatWithAI(userQuery) {
         const currentSchema = await db.getDatabaseSchema();
 
         // 2. 系统提示词
-        const systemPrompt = `你是一个拥有管理权限的数据库助手。
-            ${currentSchema}
+        const systemPrompt = `你是一个数据库管理员。
+${currentSchema}
 
-            你的能力：
-            1. 查询数据 (使用 query_database)
-            2. 招聘员工 (使用 add_employee)
-            3. 开除员工 (使用 delete_employee)
-            回复风格要求：
-            - 简洁明了，像真人一样说话。
-            - 如果操作成功，直接说结果。
-            - 如果操作失败（例如找不到人），直接告诉用户原因即可，不要解释你的工作规则。`;
+你的能力：
+1. 查询数据 (query_database)
+2. 招聘员工 (add_employee)
+3. 开除员工 (delete_employee)
 
+回复风格要求：
+- 简洁明了，像真人一样说话。
+- 如果操作成功，直接说结果。
+- 如果操作失败（例如找不到人），直接告诉用户原因即可，不要解释你的工作规则。`;
 
-        let messages = [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userQuery }
-        ];
+        // ==========================================
+        // 🌟 记忆管理逻辑 (开始)
+        // ==========================================
 
+        // A. 初始化或更新 System Prompt
+        if (conversationHistory.length === 0) {
+            conversationHistory.push({ role: "system", content: systemPrompt });
+        } else {
+            // 永远确保第0条是最新的表结构和规则
+            conversationHistory[0] = { role: "system", content: systemPrompt };
+        }
+
+        // B. 加入当前用户的提问
+        conversationHistory.push({ role: "user", content: userQuery });
+
+        // C. 🔪 裁剪历史记录 (滑动窗口) 🔪
+        // 设定最大保留条数 (比如20条，大概对应10轮对话)
+        const MAX_HISTORY_LENGTH = 20;
+
+        if (conversationHistory.length > MAX_HISTORY_LENGTH) {
+            // 策略：保留第1条(System Prompt) + 最后19条
+            // slice(-19) 表示取数组最后19个元素
+            conversationHistory = [
+                conversationHistory[0],
+                ...conversationHistory.slice(-(MAX_HISTORY_LENGTH - 1))
+            ];
+            console.log("✂️ 历史记录太长，已执行裁剪，保留最近记忆。");
+        }
+
+        // 让 messages 指向全局历史
+        let messages = conversationHistory;
+
+        // ==========================================
+        // 🌟 记忆管理逻辑 (结束)
+        // ==========================================
+        let needRefresh = false;
         console.log("🤖 AI 正在思考...");
 
-        // ==========================================
-        // 🔄 核心修改：从 if 改成 while 循环
-        // ==========================================
         let turnCount = 0;
-        const MAX_TURNS = 5; // 防止 AI陷入死循环，最多允许它连续操作5次
+        const MAX_TURNS = 5;
 
         while (turnCount < MAX_TURNS) {
             turnCount++;
 
-            // 1. 问 AI
             const aiMessage = await callLLM(messages);
 
-            // 2. 判断 AI 是否想调工具
             if (aiMessage.tool_calls) {
-                console.log(`🔄 第 ${turnCount} 轮思考: AI 想要调用工具...`);
+                console.log(`🔄 第 ${turnCount} 轮: AI 调工具...`);
 
-                // 必须把 AI 的“我想调工具”这个决定存入历史
+                // 把 AI 的想法存入历史
                 messages.push(aiMessage);
 
-                // 3. 挨个执行工具
                 for (const toolCall of aiMessage.tool_calls) {
                     const toolResult = await executeTool(toolCall);
 
-                    // 把结果存入历史
+                    const funcName = toolCall.function.name;
+                    if (funcName === 'add_employee' || funcName === 'delete_employee') {
+                        needRefresh = true; // 标记一下：刚才改过数据了！
+                    }
+                    // 把工具结果存入历史
                     messages.push({
                         role: "tool",
                         tool_call_id: toolCall.id,
                         content: toolResult
                     });
                 }
-
-                // 这样 AI 就能看到工具结果，进入下一轮思考 (Next Turn)
+                // 循环继续，AI 会看到工具结果并再次思考
 
             } else {
-                // 3. 如果 AI 不想调工具了，说明它认为任务完成了
-                console.log('✅ 任务完成，AI 最终回复:', aiMessage.content);
-                return aiMessage.content;
+                // 任务结束，把 AI 的最终回答存入历史
+                // 这样下一轮对话时，AI 就能记得它刚才说过什么
+                messages.push(aiMessage);
+
+                console.log('✅ AI 最终回复:', aiMessage.content);
+                return {
+                    reply: aiMessage.content,
+                    shouldRefresh: needRefresh
+                };
             }
         }
 
-        return "任务太复杂，我尝试了太多次，先停止了。";
+        return "任务太复杂，停止运行。";
 
     } catch (error) {
         console.error("AI Error:", error);

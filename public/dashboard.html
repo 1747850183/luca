@@ -297,6 +297,10 @@
 
                 if (json.success) {
                     addBubble(json.reply, 'ai');
+                    if (json.shouldRefresh) {
+                        console.log("检测到数据变动，正在自动刷新列表...");
+                        loadEmployees();
+                    }
                 } else {
                     addBubble('出错了: ' + json.error, 'system');
                 }
