@@ -58,6 +58,23 @@ const toolsDefinition = [
                 required: ["name"]
             }
         }
+    },
+    {
+        type: "function",
+        function: {
+            name: "update_employee",
+            description: "修改员工信息。⚠️注意：必须先查询获取员工ID，才能调用此工具。",
+            parameters: {
+                type: "object",
+                properties: {
+                    id: { type: "number", description: "员工ID (必填)" },
+                    name: { type: "string", description: "新姓名 (可选)" },
+                    position: { type: "string", description: "新职位 (可选)" },
+                    salary: { type: "number", description: "新薪资 (可选)" }
+                },
+                required: ["id"] // 只有 ID 是必须的，其他选填
+            }
+        }
     }
 ];
 
@@ -120,15 +137,35 @@ async function executeTool(toolCall) {
             const [result] = await db.query(sql, [args.name]);
             return `成功！已删除 ${result.affectedRows} 名叫 ${args.name} 的员工。`;
         }
+        if (functionName === 'update_employee') {
+            const { id, name, position, salary } = args;
+            // 动态构建 SET 子句
+            let updates = [];
+            let params = [];
 
+            if (name) { updates.push('name = ?'); params.push(name); }
+            if (position) { updates.push('position = ?'); params.push(position); }
+            if (salary) { updates.push('salary = ?'); params.push(salary); }
+
+            if (updates.length === 0) return "未提供任何要修改的信息。";
+
+            // 把 ID 加到参数最后，给 WHERE 用
+            params.push(id);
+
+            const sql = `UPDATE employees SET ${updates.join(', ')} WHERE id = ?`;
+
+            const [res] = await db.query(sql, params);
+            if (res.affectedRows === 0) return "修改失败，可能 ID 不存在。";
+            return "修改成功。";
+        }
     } catch (err) {
         return `操作执行出错: ${err.message}`;
     }
 }
 
-// src/agent.js 中的 chatWithAI 函数
 
 async function chatWithAI(userQuery) {
+    let needRefresh = false; // 刷新标记
     try {
         // 1. 获取最新表结构
         const currentSchema = await db.getDatabaseSchema();
@@ -141,6 +178,7 @@ ${currentSchema}
 1. 查询数据 (query_database)
 2. 招聘员工 (add_employee)
 3. 开除员工 (delete_employee)
+4. 修改员工 (update_employee)
 
 回复风格要求：
 - 简洁明了，像真人一样说话。
@@ -203,7 +241,7 @@ ${currentSchema}
                     const toolResult = await executeTool(toolCall);
 
                     const funcName = toolCall.function.name;
-                    if (funcName === 'add_employee' || funcName === 'delete_employee') {
+                    if (funcName === 'add_employee' || funcName === 'delete_employee' || funcName === 'update_employee') {
                         needRefresh = true; // 标记一下：刚才改过数据了！
                     }
                     // 把工具结果存入历史

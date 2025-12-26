@@ -13,7 +13,7 @@
         }
 
         .container {
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
             background: white;
             padding: 20px;
@@ -105,11 +105,14 @@
 
         <!-- 1. 新增员工表单 -->
         <div class="add-form">
-            <strong>新增员工：</strong>
+            <strong>员工信息：</strong>
+            <input type="hidden" id="editId">
             <input type="text" id="newName" placeholder="姓名" required>
             <input type="text" id="newPos" placeholder="职位" required>
             <input type="number" id="newSalary" placeholder="薪资" required>
-            <button class="add-btn" onclick="addEmployee()">添加</button>
+            <button class="add-btn" id="saveBtn" onclick="handleSave()">添加</button>
+            <button id="cancelBtn" onclick="cancelEdit()"
+                style="display:none; margin-left:5px;cursor:pointer; border-radius:4px;">取消</button>
         </div>
 
         <!-- 2. 数据列表表格 -->
@@ -121,6 +124,7 @@
                     <th>职位</th>
                     <th>薪资</th>
                     <th>入职时间</th>
+                    <th>操作</th>
                 </tr>
             </thead>
             <tbody id="employeeTableBody">
@@ -164,6 +168,10 @@
                                 <td>${emp.position}</td>
                                 <td>¥${emp.salary}</td>
                                 <td>${date}</td>
+                                <td>
+                                    <button onclick="startEdit(${emp.id}, '${emp.name}', '${emp.position}', ${emp.salary})" style="background:#305CED; color:white;border:none; padding:5px 10px; cursor:pointer; border-radius:4px;">编辑</button>
+                                    <button onclick="deleteEmployee(${emp.id})" style="background:#dc3545; color:white; border:none; padding:5px 10px; cursor:pointer; border-radius:4px; margin-left:5px;">删除</button>
+                                </td>
                             </tr>
                         `;
                         tbody.innerHTML += tr; // 追加到表格里
@@ -178,49 +186,94 @@
         // ===========================
         // 3. 核心功能：添加员工
         // ===========================
-        async function addEmployee() {
-            // 获取输入框的值
+        async function handleSave() {
+            const id = document.getElementById('editId').value; // 看看有没有 ID
             const name = document.getElementById('newName').value;
             const position = document.getElementById('newPos').value;
             const salary = document.getElementById('newSalary').value;
 
             if (!name || !position || !salary) {
-                alert('请把信息填完整！');
+                alert('请把信息填完整');
                 return;
             }
 
-            try {
-                // 向后端发起 POST 请求
-                const res = await fetch('/api/employees', {
+            const data = { name, position, salary };
+
+            // 如果 id 存在，说明是【修改模式】
+            if (id) {
+                data.id = id;
+                await fetch('/api/employees', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                alert('修改成功！');
+            } else {
+                // 如果 id 不存在，说明是【新增模式】
+                await fetch('/api/employees', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, position, salary })
+                    body: JSON.stringify(data)
                 });
+                alert('添加成功！');
+            }
 
+            // 重置表单并刷新列表
+            cancelEdit();
+            loadEmployees();
+        }
+        // 4. 开始编辑（点击表格里的编辑按钮）
+        function startEdit(id, name, pos, salary) {
+            // 把数据填回上面的输入框
+            document.getElementById('editId').value = id;
+            document.getElementById('newName').value = name;
+            document.getElementById('newPos').value = pos;
+            document.getElementById('newSalary').value = salary;
+
+            // 改变按钮文字
+            document.getElementById('saveBtn').textContent = '保存修改';
+            document.getElementById('saveBtn').style.backgroundColor = '#305CED'; // 变黄
+            document.getElementById('cancelBtn').style.display = 'inline-block'; // 显示取消按钮
+        }
+        // 5. 取消编辑
+        function cancelEdit() {
+            // 清空输入框
+            document.getElementById('editId').value = '';
+            document.getElementById('newName').value = '';
+            document.getElementById('newPos').value = '';
+            document.getElementById('newSalary').value = '';
+
+            // 恢复按钮状态
+            document.getElementById('saveBtn').textContent = '添加';
+            document.getElementById('saveBtn').style.backgroundColor = '#28a745'; // 变绿
+            document.getElementById('cancelBtn').style.display = 'none';
+        }
+        // 6. 删除员工
+        async function deleteEmployee(id) {
+            if (!confirm('确定要开除这位员工吗？此操作无法撤销！')) return;
+
+            try {
+                // 发送 DELETE 请求，注意参数写在 URL 里
+                const res = await fetch(`/api/employees?id=${id}`, {
+                    method: 'DELETE'
+                });
                 const json = await res.json();
+
                 if (json.success) {
-                    alert('添加成功！');
-                    // 清空输入框
-                    document.getElementById('newName').value = '';
-                    document.getElementById('newPos').value = '';
-                    document.getElementById('newSalary').value = '';
-                    // 重新加载列表，就能看到新数据了
-                    loadEmployees();
+                    alert('删除成功');
+                    loadEmployees(); // 刷新列表
                 } else {
-                    alert('添加失败: ' + json.error);
+                    alert('删除失败: ' + json.error);
                 }
             } catch (err) {
                 console.error(err);
                 alert('网络错误');
             }
         }
-
-        // ===========================
-        // 4. 退出功能
-        // ===========================
+        // 7. 退出
         function logout() {
-            localStorage.removeItem('user'); // 销毁凭证
-            window.location.href = '/index.html'; // 回到登录页
+            localStorage.removeItem('user');
+            window.location.href = '/index.html';
         }
 
         // 页面一打开，立刻加载数据

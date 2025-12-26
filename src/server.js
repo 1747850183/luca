@@ -4,6 +4,7 @@ const fs = require('fs');       // Node自带的文件读写模块
 const path = require('path');   // Node自带的路径处理模块
 const db = require('./db');     // 引入上一节写的数据库连接
 const { chatWithAI } = require('./agent');
+const { URL } = require('url');
 // 辅助函数：专门用来接收 POST 请求发来的数据
 function getBody(req) {
     return new Promise((resolve, reject) => {
@@ -113,6 +114,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     // 🟢 接口2：获取员工列表
+    const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+    const pathname = parsedUrl.pathname;
     if (url === '/api/employees' && method === 'GET') {
         try {
             const [rows] = await db.query('SELECT * FROM employees ORDER BY created_at DESC');
@@ -144,32 +147,54 @@ const server = http.createServer(async (req, res) => {
         }
         return;
     }
-    if (url === '/api/employees' && method === 'PUT') {
-        try {
-            const bodyStr = await getBody(req);
-            const { id, name, position, salary } = JSON.parse(bodyStr);
 
-            // 简单的校验
+    // 🔴 接口：删除员工 (DELETE)
+    if (pathname === '/api/employees' && method === 'DELETE') {
+        try {
+            // 从 URL 问号后面拿到 id
+            const id = parsedUrl.searchParams.get('id');
             if (!id) {
-                res.writeHead(400);
-                res.end(JSON.stringify({ error: '必须提供员工ID' }));
+                res.writeHead(400); // 400 Bad Request
+                res.end(JSON.stringify({ error: '必须提供 id 参数' }));
                 return;
             }
 
-            await db.query(
-                'UPDATE employees SET name = ?, position = ?, salary = ? WHERE id = ?',
-                [name, position, salary, id]
-            );
-
+            await db.query('DELETE FROM employees WHERE id = ?', [id]);
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, message: '员工信息已更新' }));
+            res.end(JSON.stringify({ success: true, message: '删除成功' }));
         } catch (err) {
             res.writeHead(500);
             res.end(JSON.stringify({ error: err.message }));
         }
         return;
     }
+    // 🟡 接口：修改员工 (PUT)
+    if (pathname === '/api/employees' && method === 'PUT') {
+        try {
+            const bodyStr = await getBody(req);
+            // 拿到前端传来的所有新数据
+            const { id, name, position, salary } = JSON.parse(bodyStr);
 
+            if (!id) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: '修改必须提供 id' }));
+                return;
+            }
+
+            // 执行 SQL 更新
+            await db.query(
+                'UPDATE employees SET name=?, position=?, salary=? WHERE id=?',
+                [name, position, salary, id]
+            );
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, message: '修改成功' }));
+        } catch (err) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: err.message }));
+        }
+        return;
+    }
     //🟢 接口：AI 聊天
     if (url === '/api/chat' && method === 'POST') {
         try {
