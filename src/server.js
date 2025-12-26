@@ -1,3 +1,4 @@
+require('dotenv').config()
 const http = require('http');   // Node自带的网络模块
 const fs = require('fs');       // Node自带的文件读写模块
 const path = require('path');   // Node自带的路径处理模块

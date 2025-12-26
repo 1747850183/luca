@@ -2,7 +2,7 @@
 const db = require('./db');
 
 // ⚠️ 这里填你的 API Key
-const API_KEY = 'sk-131c6c7dd41942ad8b646b9099efad60';
+const API_KEY = process.env.AI_API_KEY;
 // 如果用 DeepSeek，地址是 https://api.deepseek.com/v1/chat/completions
 // 如果用 OpenAI，地址是 https://api.openai.com/v1/chat/completions
 const API_URL = 'https://api.deepseek.com/chat/completions';
