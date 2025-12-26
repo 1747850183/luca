@@ -112,7 +112,7 @@
             <input type="number" id="newSalary" placeholder="薪资" required>
             <button class="add-btn" id="saveBtn" onclick="handleSave()">添加</button>
             <button id="cancelBtn" onclick="cancelEdit()"
-                style="display:none; margin-left:5px;cursor:pointer; border-radius:4px;">取消</button>
+                style="display:none; margin-left:5px;cursor:pointer; border-radius:4px;padding: 6px 15px;;">取消</button>
         </div>
 
         <!-- 2. 数据列表表格 -->
@@ -232,7 +232,7 @@
 
             // 改变按钮文字
             document.getElementById('saveBtn').textContent = '保存修改';
-            document.getElementById('saveBtn').style.backgroundColor = '#305CED'; // 变黄
+            document.getElementById('saveBtn').style.backgroundColor = '#305CED';
             document.getElementById('cancelBtn').style.display = 'inline-block'; // 显示取消按钮
         }
         // 5. 取消编辑

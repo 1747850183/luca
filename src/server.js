@@ -1,9 +1,9 @@
-require('dotenv').config()
+require('dotenv').config();
+const { chatWithAI, injectMemory } = require('./agent');
 const http = require('http');   // Node自带的网络模块
 const fs = require('fs');       // Node自带的文件读写模块
 const path = require('path');   // Node自带的路径处理模块
 const db = require('./db');     // 引入上一节写的数据库连接
-const { chatWithAI } = require('./agent');
 const { URL } = require('url');
 // 辅助函数：专门用来接收 POST 请求发来的数据
 function getBody(req) {
@@ -139,6 +139,8 @@ const server = http.createServer(async (req, res) => {
                 [name, position, salary]
             );
 
+            injectMemory(`用户在网页端手动招聘了新员工：${name} (职位: ${position}, 薪资: ${salary})。`);
+
             res.writeHead(201, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true, message: '员工创建成功' }));
         } catch (err) {
@@ -158,8 +160,13 @@ const server = http.createServer(async (req, res) => {
                 res.end(JSON.stringify({ error: '必须提供 id 参数' }));
                 return;
             }
-
+            const [rows] = await db.query('SELECT * FROM employees WHERE id = ?', [id]);
+            const target = rows[0];
             await db.query('DELETE FROM employees WHERE id = ?', [id]);
+            if (target) {
+                // 这行代码就是把动作写入 AI 的大脑
+                injectMemory(`用户在网页端手动删除了员工：${target.name} (职位: ${target.position}, 薪资: ${target.salary})。`);
+            }
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true, message: '删除成功' }));
         } catch (err) {
@@ -180,12 +187,24 @@ const server = http.createServer(async (req, res) => {
                 res.end(JSON.stringify({ error: '修改必须提供 id' }));
                 return;
             }
-
+            const [rows] = await db.query('SELECT * FROM employees WHERE id = ?', [id]);
+            if (rows.length === 0) {
+                res.writeHead(404);
+                res.end(JSON.stringify({ error: '找不到该员工' }));
+                return;
+            }
+            const oldData = rows[0];
             // 执行 SQL 更新
             await db.query(
                 'UPDATE employees SET name=?, position=?, salary=? WHERE id=?',
                 [name, position, salary, id]
             );
+            const changeLog = `用户在网页端手动修改了员工信息 (ID: ${id})。
+            变更详情：
+            - 姓名：从 "${oldData.name}" 变为 "${name}"
+            - 职位：从 "${oldData.position}" 变为 "${position}"
+            - 薪资：从 "${oldData.salary}" 变为 "${salary}"`
+            injectMemory(changeLog);
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true, message: '修改成功' }));

@@ -81,27 +81,62 @@ const toolsDefinition = [
 // ==========================================
 // 2. 核心函数：与 LLM 通信
 // ==========================================
+// src/agent.js 中的 callLLM 函数
+
 async function callLLM(messages) {
-    console.log('🤖 正在思考...');
+    try {
+        // ==================================================
+        // 📤 1. 打印发送给 AI 的完整内容 (Prompt + History)
+        // ==================================================
+        console.log("\n👇👇👇 ============ [发送给 AI 的 Payload] ============ 👇👇👇");
+        // JSON.stringify(..., null, 2) 可以让 JSON 自动换行、缩进，变得非常易读
+        console.log(JSON.stringify(messages, null, 2));
+        console.log("👆👆👆 ================================================== 👆👆👆\n");
 
-    const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${API_KEY}`
-        },
-        body: JSON.stringify({
-            model: "deepseek-chat", // 或者 deepseek-chat
-            messages: messages,
-            tools: toolsDefinition, // 把工具箱传给它
-            tool_choice: "auto"     // 让 AI 自己决定用不用工具
-        })
-    });
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${API_KEY}`
+            },
+            body: JSON.stringify({
+                model: "deepseek-chat", // 或者是 "gpt-3.5-turbo"
+                messages: messages,
+                tools: toolsDefinition,
+                tool_choice: "auto"
+            })
+        });
 
-    const data = await response.json();
-    // console.log("LLM raw response:", JSON.stringify(data, null, 2));
-    return data.choices[0].message;
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`API Error ${response.status}: ${errText}`);
+        }
+
+        const data = await response.json();
+
+        // ==================================================
+        // 📥 2. 打印 AI 返回的原始数据
+        // ==================================================
+        console.log("\n👇👇👇 ============ [AI 返回的 Raw Response] ============ 👇👇👇");
+        console.log(JSON.stringify(data, null, 2));
+        console.log("👆👆👆 ==================================================== 👆👆👆\n");
+
+        // 简单提取一下 AI 到底说了啥，方便一眼看懂
+        const aiContent = data.choices[0].message.content;
+        if (aiContent) {
+            console.log(`💬 [AI 人话]: ${aiContent}\n`);
+        } else if (data.choices[0].message.tool_calls) {
+            console.log(`🔧 [AI 决定调工具]: ${JSON.stringify(data.choices[0].message.tool_calls)}\n`);
+        }
+
+        return data.choices[0].message;
+
+    } catch (error) {
+        console.error("🔴 callLLM 报错:", error);
+        throw error;
+    }
 }
+
 
 // ==========================================
 // 3. 工具执行器 (Action)
@@ -126,17 +161,28 @@ async function executeTool(toolCall) {
             const [result] = await db.query(sql, [args.name, args.position, args.salary]);
             return `成功！新员工 ID 为 ${result.insertId}`;
         }
-
-        // --- 情况 C: 删员工 ---
         if (functionName === 'delete_employee') {
-            // 先查一下人在不在，不在的话提醒 AI
-            const [check] = await db.query('SELECT * FROM employees WHERE name = ?', [args.name]);
-            if (check.length === 0) return "操作失败：找不到叫这个名字的员工。";
+            // 1. 修改 SQL：查出所有信息 (SELECT *)，而不仅仅是 ID
+            const [users] = await db.query('SELECT * FROM employees WHERE name = ?', [args.name]);
 
-            const sql = 'DELETE FROM employees WHERE name = ?';
-            const [result] = await db.query(sql, [args.name]);
-            return `成功！已删除 ${result.affectedRows} 名叫 ${args.name} 的员工。`;
+            if (users.length === 0) return "找不到这个人，无法删除。";
+
+            // 拿到这个人的完整档案
+            const targetUser = users[0];
+
+            // 2. 执行删除
+            await db.query('DELETE FROM employees WHERE id = ?', [targetUser.id]);
+
+            // 3. 关键点：把他的详细信息写在返回结果里！
+            // 这样这些信息就会被存进历史记录（memory），AI 以后就能查到了。
+            return `操作成功。已删除员工详情：
+            - ID: ${targetUser.id}
+            - 姓名: ${targetUser.name}
+            - 职位: ${targetUser.position}
+            - 薪资: ${targetUser.salary}
+            (数据已备份在对话历史中)`;
         }
+
         if (functionName === 'update_employee') {
             const { id, name, position, salary } = args;
             // 动态构建 SET 子句
@@ -165,7 +211,6 @@ async function executeTool(toolCall) {
 
 
 async function chatWithAI(userQuery) {
-    let needRefresh = false; // 刷新标记
     try {
         // 1. 获取最新表结构
         const currentSchema = await db.getDatabaseSchema();
@@ -183,7 +228,18 @@ ${currentSchema}
 回复风格要求：
 - 简洁明了，像真人一样说话。
 - 如果操作成功，直接说结果。
-- 如果操作失败（例如找不到人），直接告诉用户原因即可，不要解释你的工作规则。`;
+- 如果操作失败，直接告诉用户原因即可，不要解释你的工作规则。
+
+⚠️ 核心规则：
+1. **删除前必须确认**：涉及删除时，先查人，再问“你确定要删除 [姓名] (ID: [ID]) 吗？”。
+2. 只有用户确认后，才调用 delete_employee。
+
+🧠 高级逻辑（后悔药）：
+- **关于“恢复”**：虽然数据库没有“撤销”功能，但如果用户要求“恢复”或“撤销删除”刚才删掉的人，请利用你的**对话记忆**。
+- 从历史消息中提取那个人的【姓名、职位、薪资】，然后直接调用 **add_employee** 重新把他加回去。
+- 成功后提示用户：“已根据记忆恢复了该员工，但系统分配了新的 ID。”
+
+`;
 
         // ==========================================
         // 🌟 记忆管理逻辑 (开始)
@@ -202,16 +258,18 @@ ${currentSchema}
 
         // C. 🔪 裁剪历史记录 (滑动窗口) 🔪
         // 设定最大保留条数 (比如20条，大概对应10轮对话)
-        const MAX_HISTORY_LENGTH = 20;
+        const MAX_HISTORY_LENGTH = 40;
 
         if (conversationHistory.length > MAX_HISTORY_LENGTH) {
-            // 策略：保留第1条(System Prompt) + 最后19条
-            // slice(-19) 表示取数组最后19个元素
+            let recentHistory = conversationHistory.slice(-(MAX_HISTORY_LENGTH - 1));
+            while (recentHistory.length > 0 && recentHistory[0].role === 'tool') {
+                recentHistory.shift(); // 扔掉这条没头没脑的工具结果
+            }
             conversationHistory = [
                 conversationHistory[0],
-                ...conversationHistory.slice(-(MAX_HISTORY_LENGTH - 1))
+                ...recentHistory
             ];
-            console.log("✂️ 历史记录太长，已执行裁剪，保留最近记忆。");
+            console.log(`✂️ 已执行裁剪，当前历史长度: ${conversationHistory.length}`);
         }
 
         // 让 messages 指向全局历史
@@ -265,13 +323,37 @@ ${currentSchema}
                 };
             }
         }
-
-        return "任务太复杂，停止运行。";
+        console.warn("⚠️ AI 思考次数过多，强制停止。");
+        return {
+            reply: "任务有点太复杂了，我先暂停一下。不过刚才的操作（如果有）已经执行了。",
+            shouldRefresh: needRefresh
+        };
 
     } catch (error) {
         console.error("AI Error:", error);
-        return "系统故障: " + error.message;
+        return {
+            reply: "系统出小差了: " + error.message,
+            shouldRefresh: needRefresh // 关键！把这个变量带出去
+        };
     }
 }
 
-module.exports = { chatWithAI };
+function injectMemory(logText) {
+    // 构造一条系统通知消息
+    const systemNote = {
+        role: "system", // 使用 system 角色，像旁白一样
+        content: `[系统通知] ${logText}`
+    };
+
+    // 存入历史记录
+    conversationHistory.push(systemNote);
+
+    // 简单的裁剪保护（防止手动操作太多把内存撑爆）
+    if (conversationHistory.length > 20) {
+        conversationHistory = [conversationHistory[0], ...conversationHistory.slice(-19)];
+    }
+
+    console.log("🧠 已注入 AI 记忆:", logText);
+}
+
+module.exports = { chatWithAI, injectMemory };
